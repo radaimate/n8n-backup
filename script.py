@@ -63,7 +63,8 @@ def send_telegram(text: str) -> None:
         # nem küldi csak mint egy készrecímzett lezárt borítíkot, elkészíti"
         keres = urllib.request.Request(url, data=body)
 
-        urllib.request.urlopen(keres, timeout=10)
+        with urllib.request.urlopen(keres, timeout=10):
+            pass
     except (urllib.error.URLError, TimeoutError) as e:
         logger.warning(f"Telegram üzenet küldése sikertelen: {e}")
 
