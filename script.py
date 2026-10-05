@@ -46,6 +46,7 @@ def main():
         ],
     )
     logger.info("mentes indul")
+    run_docker(["stop", "nemlétezik"])
 
 
 # -------------Telegram-üzenet-------------
@@ -67,6 +68,31 @@ def send_telegram(text: str) -> None:
             pass
     except (urllib.error.URLError, TimeoutError) as e:
         logger.warning(f"Telegram üzenet küldése sikertelen: {e}")
+
+
+# -------------Docker-hívások-------------
+class BackupError(Exception):
+    """A mentés valamelyik lépése sikertelen"""
+
+
+def run_docker(args: list[str]) -> None:
+    try:
+        eredmeny = subprocess.run(
+            ["docker", *args],
+            capture_output=True,
+            timeout=60,
+            encoding="UTF-8",
+            errors="replace",
+        )
+    except FileNotFoundError as e:
+        raise BackupError("A docker nem található") from e
+    except subprocess.TimeoutExpired as e:
+        raise BackupError(f"{' '.join(args)} sikertelen:A timeout idő lejárt") from e
+
+    if eredmeny.returncode != 0:
+        raise BackupError(
+            f"'docker {' '.join(args)}' sikertelen: {eredmeny.stderr.strip()}"
+        )
 
 
 if __name__ == "__main__":
