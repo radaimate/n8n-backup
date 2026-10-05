@@ -31,6 +31,8 @@ else:
         sys.exit("A BACKUP_DIR üres a .env-ben!")
     BACKUP_DIR = Path(backup_path.strip())
 
+# -------------Logging konfigrurálás-------------
+
 
 def main():
     BACKUP_DIR.mkdir(parents=True, exist_ok=True)
@@ -44,6 +46,26 @@ def main():
         ],
     )
     logger.info("mentes indul")
+
+
+# -------------Telegram-üzenet-------------
+
+
+def send_telegram(text: str) -> None:
+    if not TELEGRAM_CHAT_ID or not TELEGRAM_TOKEN:
+        return
+    try:
+        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+        adatok = {"chat_id": TELEGRAM_CHAT_ID, "text": text}
+        # dict -> string :urllib.parse.urlencode(adatok)
+        # string -> bájtok, az encode álltal ez lesz az üzenet maga
+        body = urllib.parse.urlencode(adatok).encode()
+        # nem küldi csak mint egy készrecímzett lezárt borítíkot, elkészíti"
+        keres = urllib.request.Request(url, data=body)
+
+        urllib.request.urlopen(keres, timeout=10)
+    except (urllib.error.URLError, TimeoutError) as e:
+        logger.warning(f"Telegram üzenet küldése sikertelen: {e}")
 
 
 if __name__ == "__main__":
