@@ -7,6 +7,7 @@ import tempfile
 import zipfile
 import urllib.error
 import urllib.request
+import shutil
 import urllib.parse
 from pathlib import Path
 from dotenv import load_dotenv
@@ -18,8 +19,15 @@ logger = logging.getLogger(__name__)
 
 CONTAINER_NAME = "n8n"
 KEEP_COUNT = 14  # ennyi mentés marad meg
+STAGING = Path(tempfile.gettempdir()) / "n8n-backup-staging"
+
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
+
+
+class BackupError(Exception):
+    """A mentés valamelyik lépése sikertelen"""
+
 
 try:
     backup_path = os.environ["BACKUP_DIR"]
@@ -46,7 +54,8 @@ def main():
         ],
     )
     logger.info("mentes indul")
-    run_docker(["stop", "nemlétezik"])
+    db_fajlok = copy_db_files()
+    logger.info("Kimásolt DB fájlok: %s", [f.name for f in db_fajlok])
 
 
 # -------------Telegram-üzenet-------------
@@ -71,8 +80,6 @@ def send_telegram(text: str) -> None:
 
 
 # -------------Docker-hívások-------------
-class BackupError(Exception):
-    """A mentés valamelyik lépése sikertelen"""
 
 
 def run_docker(args: list[str]) -> None:
@@ -84,15 +91,28 @@ def run_docker(args: list[str]) -> None:
             encoding="UTF-8",
             errors="replace",
         )
+
     except FileNotFoundError as e:
         raise BackupError("A docker nem található") from e
     except subprocess.TimeoutExpired as e:
-        raise BackupError(f"{' '.join(args)} sikertelen:A timeout idő lejárt") from e
+        raise BackupError(f"{' '.join(args)} sikertelen: A timeout idő lejárt") from e
 
     if eredmeny.returncode != 0:
         raise BackupError(
             f"'docker {' '.join(args)}' sikertelen: {eredmeny.stderr.strip()}"
         )
+
+
+def copy_db_files() -> list[Path]:
+    forras = f"{CONTAINER_NAME}:/home/node/.n8n/."
+    if STAGING.exists():
+        shutil.rmtree(STAGING)
+    STAGING.mkdir(parents=True, exist_ok=True)
+    run_docker(["cp", forras, str(STAGING)])
+    db_fajlok = list(STAGING.glob("database.sqlite*"))
+    if not db_fajlok:
+        raise BackupError("Nem található database.sqlite a kimásolt fájlok között")
+    return db_fajlok
 
 
 if __name__ == "__main__":
