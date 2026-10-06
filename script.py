@@ -59,7 +59,7 @@ def main():
     logger.info("Kimásolt DB fájlok: %s", [f.name for f in db_fajlok])
     zip_utvonal = zip_maker(db_fajlok)
     logger.info("A ZIP file kész: %s", zip_utvonal)
-    logger.info(f"A ZIP mérete: {ell_meret(zip_utvonal)}")
+    logger.info(f"A ZIP mérete: {ell_meret(zip_utvonal)}MB")
 
 
 # -------------Telegram-üzenet-------------
@@ -131,9 +131,11 @@ def zip_maker(lista: list[Path]) -> Path:
 def ell_meret(zip_hely: Path) -> float:
     if not zip_hely.exists():
         raise BackupError("Nem található ilyen ZIP file!")
-    if zip_hely.stat().st_size < (MIN_ZIP_SIZE):
-        raise BackupError("Gyanúsan kicsi a ZIP-mérete!")
-    return round((zip_hely.stat().st_size) / (1024**2), 2)
+    meret = zip_hely.stat().st_size
+    meret_mb = round(meret / (1024**2), 2)
+    if meret < MIN_ZIP_SIZE:
+        raise BackupError(f"Gyanúsan kicsi a ZIP-mérete: {meret_mb}MB !")
+    return meret_mb
 
 
 if __name__ == "__main__":
