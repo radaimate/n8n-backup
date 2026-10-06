@@ -56,6 +56,8 @@ def main():
     logger.info("mentes indul")
     db_fajlok = copy_db_files()
     logger.info("Kimásolt DB fájlok: %s", [f.name for f in db_fajlok])
+    zip_utvonal = zip_maker(db_fajlok)
+    logger.info("A ZIP file kész: %s", zip_utvonal)
 
 
 # -------------Telegram-üzenet-------------
@@ -113,6 +115,15 @@ def copy_db_files() -> list[Path]:
     if not db_fajlok:
         raise BackupError("Nem található database.sqlite a kimásolt fájlok között")
     return db_fajlok
+
+
+def zip_maker(lista: list[Path]) -> Path:
+    datum = datetime.now().strftime("%Y-%m-%d_%H.%M.%S")
+    ZIP_HELY = Path(BACKUP_DIR, f"n8n_backup_{datum}.zip")
+    with zipfile.ZipFile(ZIP_HELY, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for f in lista:
+            zf.write(f, arcname=f.name)
+    return ZIP_HELY
 
 
 if __name__ == "__main__":
