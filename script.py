@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 # -------------Beállítások-------------
 
 CONTAINER_NAME = "n8n"
-KEEP_COUNT = 14  # ennyi mentés marad meg
+KEEP_COUNT = 15  # ennyi mentés marad meg
 STAGING = Path(tempfile.gettempdir()) / "n8n-backup-staging"
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "")
@@ -60,6 +60,7 @@ def main():
     zip_utvonal = zip_maker(db_fajlok)
     logger.info("A ZIP file kész: %s", zip_utvonal)
     logger.info(f"A ZIP mérete: {ell_meret(zip_utvonal)}MB")
+    regi_torles()
 
 
 # -------------Telegram-üzenet-------------
@@ -136,6 +137,18 @@ def ell_meret(zip_hely: Path) -> float:
     if meret < MIN_ZIP_SIZE:
         raise BackupError(f"Gyanúsan kicsi a ZIP-mérete: {meret_mb}MB !")
     return meret_mb
+
+
+def regi_torles() -> None:
+    zipek = BACKUP_DIR.glob("n8n_backup_*.zip")
+    rendezve = sorted(zipek, key=lambda f: f.stat().st_mtime, reverse=True)
+    regiek = rendezve[KEEP_COUNT:]
+    for r in regiek:
+        try:
+            logger.info(f"A {r.name} mentés már régi így törlésre kerül!")
+            r.unlink()
+        except OSError as e:
+            logger.warning("Nem sikerült törölni: %s --> (%s)", r.name, e)
 
 
 if __name__ == "__main__":
