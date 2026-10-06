@@ -23,6 +23,7 @@ STAGING = Path(tempfile.gettempdir()) / "n8n-backup-staging"
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
+MIN_ZIP_SIZE = 100 * 1024
 
 
 class BackupError(Exception):
@@ -58,6 +59,7 @@ def main():
     logger.info("Kimásolt DB fájlok: %s", [f.name for f in db_fajlok])
     zip_utvonal = zip_maker(db_fajlok)
     logger.info("A ZIP file kész: %s", zip_utvonal)
+    logger.info(f"A ZIP mérete: {ell_meret(zip_utvonal)}")
 
 
 # -------------Telegram-üzenet-------------
@@ -124,6 +126,14 @@ def zip_maker(lista: list[Path]) -> Path:
         for f in lista:
             zf.write(f, arcname=f.name)
     return ZIP_HELY
+
+
+def ell_meret(zip_hely: Path) -> float:
+    if not zip_hely.exists():
+        raise BackupError("Nem található ilyen ZIP file!")
+    if zip_hely.stat().st_size < (MIN_ZIP_SIZE):
+        raise BackupError("Gyanúsan kicsi a ZIP-mérete!")
+    return round((zip_hely.stat().st_size) / (1024**2), 2)
 
 
 if __name__ == "__main__":
