@@ -54,13 +54,52 @@ def main():
             logging.FileHandler(BACKUP_DIR / "backup-log.txt", encoding="utf-8"),
         ],
     )
-    logger.info("mentes indul")
-    db_fajlok = copy_db_files()
-    logger.info("Kimásolt DB fájlok: %s", [f.name for f in db_fajlok])
-    zip_utvonal = zip_maker(db_fajlok)
-    logger.info("A ZIP file kész: %s", zip_utvonal)
-    logger.info(f"A ZIP mérete: {ell_meret(zip_utvonal)}MB")
-    regi_torles()
+    restart_ok = False
+
+    try:
+        logger.info("mentes indul")
+        run_docker(["stop", "-t", "30", CONTAINER_NAME])
+        db_fajlok = copy_db_files()
+        logger.info("Kimásolt DB fájlok: %s", [f.name for f in db_fajlok])
+        zip_utvonal = zip_maker(db_fajlok)
+        try:
+            meret = ell_meret(zip_utvonal)
+        except BackupError:
+            try:
+                zip_utvonal.unlink(missing_ok=True)
+            except OSError as e:
+                logger.warning("Nem sikerült törölni: %s --> (%s)", zip_utvonal.name, e)
+            raise
+        logger.info("A ZIP file kész: %s", zip_utvonal)
+        logger.info(f"A ZIP mérete: {meret}MB")
+        regi_torles()
+    # BackupErrorral a várható hibákat fogom meg
+    except BackupError as b:
+        logger.error(f"Hiba történt:{b}")
+        send_telegram(f"A folyamat közben hiba lépett fel:{b}")
+        sys.exit(1)
+    # Exception-nel a váratlan hibákat fogom meg
+    except Exception as e:
+        logger.exception(f"Hiba történt:{e}")
+        send_telegram(f"A folyamat közben hiba lépett fel:{e}")
+        sys.exit(1)
+    else:
+        send_telegram(f"Sikeres mentés! :{zip_utvonal}--{meret}")
+    finally:
+        try:
+            run_docker(["start", CONTAINER_NAME])
+            restart_ok = True
+        except BackupError as b:
+            logger.error(f"A {CONTAINER_NAME} konténert nem sikerült újraindítani: {b}")
+            send_telegram(
+                f"KRITIKUS! a(z) {CONTAINER_NAME} konténert nem sikerült újraindítani! {b}"
+            )
+        # STAGING takarítására hogy ne maradjon ott a következő futásig a TEMP-ben az érzékeny adat
+        try:
+            if STAGING.exists():
+                shutil.rmtree(STAGING)
+        except OSError as o:
+            logger.warning(f"A STAGING mappa utolagos ürítése sikertelen: {o}")
 
 
 # -------------Telegram-üzenet-------------
@@ -123,9 +162,18 @@ def copy_db_files() -> list[Path]:
 def zip_maker(lista: list[Path]) -> Path:
     datum = datetime.now().strftime("%Y-%m-%d_%H.%M.%S")
     ZIP_HELY = Path(BACKUP_DIR, f"n8n_backup_{datum}.zip")
-    with zipfile.ZipFile(ZIP_HELY, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-        for f in lista:
-            zf.write(f, arcname=f.name)
+    try:
+        with zipfile.ZipFile(ZIP_HELY, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            for f in lista:
+                zf.write(f, arcname=f.name)
+    except Exception:
+        try:
+            ZIP_HELY.unlink(missing_ok=True)
+        except OSError as o:
+            logger.warning(
+                f"Hiba lépett fel a zip_maker hibakezelésében, Nem sikerült törölni a rossz félkész ZIP-et! :{ZIP_HELY.name}--{o}"
+            )
+        raise
     return ZIP_HELY
 
 
