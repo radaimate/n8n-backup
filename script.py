@@ -55,7 +55,10 @@ def main():
         ],
     )
     restart_ok = False
-
+    backup_ok = False
+    hiba_uzenet = ""
+    siker_uzenet = ""
+    restart_hiba_uzenet = ""
     try:
         logger.info("mentes indul")
         run_docker(["stop", "-t", "30", CONTAINER_NAME])
@@ -70,36 +73,51 @@ def main():
             except OSError as e:
                 logger.warning("Nem sikerült törölni: %s --> (%s)", zip_utvonal.name, e)
             raise
+        backup_ok = True
+        siker_uzenet = f"A ZIP file kész: {zip_utvonal.name}, mérete: {meret} MB"
         logger.info("A ZIP file kész: %s", zip_utvonal)
-        logger.info(f"A ZIP mérete: {meret}MB")
+        logger.info(f"A ZIP mérete: {meret} MB")
         regi_torles()
     # BackupErrorral a várható hibákat fogom meg
     except BackupError as b:
         logger.error(f"Hiba történt:{b}")
-        send_telegram(f"A folyamat közben hiba lépett fel:{b}")
-        sys.exit(1)
+        hiba_uzenet = str(b)
     # Exception-nel a váratlan hibákat fogom meg
     except Exception as e:
         logger.exception(f"Hiba történt:{e}")
-        send_telegram(f"A folyamat közben hiba lépett fel:{e}")
-        sys.exit(1)
-    else:
-        send_telegram(f"Sikeres mentés! :{zip_utvonal}--{meret}")
+        hiba_uzenet = f"{type(e).__name__}: {e}"
     finally:
         try:
             run_docker(["start", CONTAINER_NAME])
             restart_ok = True
         except BackupError as b:
-            logger.error(f"A {CONTAINER_NAME} konténert nem sikerült újraindítani: {b}")
-            send_telegram(
-                f"KRITIKUS! a(z) {CONTAINER_NAME} konténert nem sikerült újraindítani! {b}"
+            logger.error(
+                f"A(z) {CONTAINER_NAME} konténert nem sikerült újraindítani: {b}"
             )
+            restart_hiba_uzenet = str(b)
         # STAGING takarítására hogy ne maradjon ott a következő futásig a TEMP-ben az érzékeny adat
         try:
             if STAGING.exists():
                 shutil.rmtree(STAGING)
         except OSError as o:
             logger.warning(f"A STAGING mappa utolagos ürítése sikertelen: {o}")
+
+    if restart_ok and backup_ok:
+        uzenet = f"n8n-mentés - OK\n{siker_uzenet}"
+        szint = logging.INFO
+    elif restart_ok and not backup_ok:
+        uzenet = f"n8n-mentés - FIGYELMEZTETÉS\nSikertelen mentés de a konténer fut!\n{hiba_uzenet}"
+        szint = logging.WARNING
+    elif not restart_ok and backup_ok:
+        uzenet = f"n8n-mentés - HIBA\nSikeres mentés de a konténer áll! Kézi újraindítást igényel\n{siker_uzenet}\n{restart_hiba_uzenet}"
+        szint = logging.ERROR
+    else:
+        uzenet = f"n8n-mentés - KRITIKUS HIBA\nSikertelen mentés és sikertelen újraindítás! Sürgős beavatkozást igényel!\n{hiba_uzenet}\n{restart_hiba_uzenet}"
+        szint = logging.CRITICAL
+    logger.log(szint, uzenet)
+    send_telegram(uzenet)
+    if not (backup_ok and restart_ok):
+        sys.exit(1)
 
 
 # -------------Telegram-üzenet-------------
