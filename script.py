@@ -1,3 +1,9 @@
+"""
+Ez a script az n8n workflow-k adatbázisáról készít mentést:
+ZIP-be csomagolja, majd attól függően, hogy sikerült-e a művelet,
+Telegramon értesítést küld.
+"""
+
 import os
 from datetime import datetime
 import logging
@@ -15,19 +21,16 @@ from dotenv import load_dotenv
 load_dotenv(Path(__file__).parent / ".env")
 logger = logging.getLogger(__name__)
 
+
 # -------------Beállítások-------------
 
 CONTAINER_NAME = "n8n"
 KEEP_COUNT = 15  # ennyi mentés marad meg
 STAGING = Path(tempfile.gettempdir()) / "n8n-backup-staging"
+MIN_ZIP_SIZE = 100 * 1024
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
-MIN_ZIP_SIZE = 100 * 1024
-
-
-class BackupError(Exception):
-    """A mentés valamelyik lépése sikertelen"""
 
 
 try:
@@ -35,12 +38,17 @@ try:
 except KeyError:
     sys.exit("A BACKUP_DIR egyáltalán nincs a .env-ben!")
 else:
-    # .strip() arra az esetre ha valaki csak egy szőközt ad meg!-a szó elejéről és végéről levágja a szőközöket!
+    # .strip(): a szöveg elejéről és végéről levágja a szóközöket, így a csak szóközből álló érték is üresnek számít
     if not backup_path.strip():
         sys.exit("A BACKUP_DIR üres a .env-ben!")
     BACKUP_DIR = Path(backup_path.strip())
 
-# -------------Logging konfigrurálás-------------
+
+class BackupError(Exception):
+    """A mentés valamelyik lépése sikertelen"""
+
+
+# -------------Fő folyamat: mentés + jelentés-------------
 
 
 def main():
@@ -56,71 +64,68 @@ def main():
     )
     restart_ok = False
     backup_ok = False
-    hiba_uzenet = ""
-    siker_uzenet = ""
-    restart_hiba_uzenet = ""
+    error_message = ""
+    success_message = ""
+    restart_error_message = ""
     try:
-        logger.info("mentes indul")
+        logger.info("Mentés indul")
         run_docker(["stop", "-t", "30", CONTAINER_NAME])
-        db_fajlok = copy_db_files()
-        logger.info("Kimásolt DB fájlok: %s", [f.name for f in db_fajlok])
-        zip_utvonal = zip_maker(db_fajlok)
+        db_files = copy_db_files()
+        logger.info("Kimásolt DB-fájlok: %s", [f.name for f in db_files])
+        zip_path = create_zip(db_files)
         try:
-            meret = ell_meret(zip_utvonal)
+            size_mb = check_size(zip_path)
         except BackupError:
-            try:
-                zip_utvonal.unlink(missing_ok=True)
-            except OSError as e:
-                logger.warning("Nem sikerült törölni: %s --> (%s)", zip_utvonal.name, e)
+            remove_zip(zip_path)
             raise
         backup_ok = True
-        siker_uzenet = f"A ZIP file kész: {zip_utvonal.name}, mérete: {meret} MB"
-        logger.info("A ZIP file kész: %s", zip_utvonal)
-        logger.info(f"A ZIP mérete: {meret} MB")
-        regi_torles()
+        success_message = f"A ZIP-fájl kész: {zip_path.name}, mérete: {size_mb} MB"
+        logger.info("A ZIP-fájl kész: %s", zip_path)
+        logger.info(f"A ZIP mérete: {size_mb} MB")
+        remove_old()
     # BackupErrorral a várható hibákat fogom meg
-    except BackupError as b:
-        logger.error(f"Hiba történt:{b}")
-        hiba_uzenet = str(b)
+    except BackupError as e:
+        logger.error(f"Hiba történt: {e}")
+        error_message = str(e)
     # Exception-nel a váratlan hibákat fogom meg
     except Exception as e:
-        logger.exception(f"Hiba történt:{e}")
-        hiba_uzenet = f"{type(e).__name__}: {e}"
+        logger.exception(f"Hiba történt: {e}")
+        error_message = f"{type(e).__name__}: {e}"
     finally:
         try:
             run_docker(["start", CONTAINER_NAME])
             restart_ok = True
-        except BackupError as b:
+        except BackupError as e:
             logger.error(
-                f"A(z) {CONTAINER_NAME} konténert nem sikerült újraindítani: {b}"
+                f"A(z) {CONTAINER_NAME} konténert nem sikerült újraindítani: {e}"
             )
-            restart_hiba_uzenet = str(b)
-        # STAGING takarítására hogy ne maradjon ott a következő futásig a TEMP-ben az érzékeny adat
+            restart_error_message = str(e)
+        # STAGING takarítása, hogy ne maradjon ott a következő futásig a TEMP-ben az érzékeny adat
         try:
             if STAGING.exists():
                 shutil.rmtree(STAGING)
-        except OSError as o:
-            logger.warning(f"A STAGING mappa utolagos ürítése sikertelen: {o}")
+        except OSError as e:
+            logger.warning(f"A STAGING mappa utólagos ürítése sikertelen: {e}")
 
     if restart_ok and backup_ok:
-        uzenet = f"n8n-mentés - OK\n{siker_uzenet}"
-        szint = logging.INFO
+        message = f"n8n-mentés - OK\n{success_message}"
+        level = logging.INFO
     elif restart_ok and not backup_ok:
-        uzenet = f"n8n-mentés - FIGYELMEZTETÉS\nSikertelen mentés de a konténer fut!\n{hiba_uzenet}"
-        szint = logging.WARNING
+        message = f"n8n-mentés - FIGYELMEZTETÉS\nSikertelen mentés, de a konténer fut!\n{error_message}"
+        level = logging.WARNING
     elif not restart_ok and backup_ok:
-        uzenet = f"n8n-mentés - HIBA\nSikeres mentés de a konténer áll! Kézi újraindítást igényel\n{siker_uzenet}\n{restart_hiba_uzenet}"
-        szint = logging.ERROR
+        message = f"n8n-mentés - HIBA\nSikeres mentés, de a konténer áll! Kézi újraindítást igényel!\n{success_message}\n{restart_error_message}"
+        level = logging.ERROR
     else:
-        uzenet = f"n8n-mentés - KRITIKUS HIBA\nSikertelen mentés és sikertelen újraindítás! Sürgős beavatkozást igényel!\n{hiba_uzenet}\n{restart_hiba_uzenet}"
-        szint = logging.CRITICAL
-    logger.log(szint, uzenet)
-    send_telegram(uzenet)
+        message = f"n8n-mentés - KRITIKUS HIBA\nSikertelen mentés és sikertelen újraindítás! Sürgős beavatkozást igényel!\n{error_message}\n{restart_error_message}"
+        level = logging.CRITICAL
+    logger.log(level, message)
+    send_telegram(message)
     if not (backup_ok and restart_ok):
         sys.exit(1)
 
 
-# -------------Telegram-üzenet-------------
+# -------------Telegram-értesítés küldése-------------
 
 
 def send_telegram(text: str) -> None:
@@ -128,17 +133,17 @@ def send_telegram(text: str) -> None:
         return
     try:
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-        adatok = {"chat_id": TELEGRAM_CHAT_ID, "text": text}
-        # dict -> string :urllib.parse.urlencode(adatok)
-        # string -> bájtok, az encode álltal ez lesz az üzenet maga
-        body = urllib.parse.urlencode(adatok).encode()
-        # nem küldi csak mint egy készrecímzett lezárt borítíkot, elkészíti"
-        keres = urllib.request.Request(url, data=body)
+        message_parameters = {"chat_id": TELEGRAM_CHAT_ID, "text": text}
+        # dict -> string: urllib.parse.urlencode(message_parameters)
+        # string -> bájtok: az .encode() által ez lesz az üzenet törzse
+        body = urllib.parse.urlencode(message_parameters).encode()
+        # még nem küldi el, csak elkészíti, mint egy megcímzett, lezárt borítékot
+        request = urllib.request.Request(url, data=body)
 
-        with urllib.request.urlopen(keres, timeout=10):
+        with urllib.request.urlopen(request, timeout=10):
             pass
     except (urllib.error.URLError, TimeoutError) as e:
-        logger.warning(f"Telegram üzenet küldése sikertelen: {e}")
+        logger.warning(f"Telegram-üzenet küldése sikertelen: {e}")
 
 
 # -------------Docker-hívások-------------
@@ -146,7 +151,7 @@ def send_telegram(text: str) -> None:
 
 def run_docker(args: list[str]) -> None:
     try:
-        eredmeny = subprocess.run(
+        result = subprocess.run(
             ["docker", *args],
             capture_output=True,
             timeout=60,
@@ -155,66 +160,80 @@ def run_docker(args: list[str]) -> None:
         )
 
     except FileNotFoundError as e:
-        raise BackupError("A docker nem található") from e
+        raise BackupError("A Docker nem található") from e
     except subprocess.TimeoutExpired as e:
-        raise BackupError(f"{' '.join(args)} sikertelen: A timeout idő lejárt") from e
+        raise BackupError(f"'docker {' '.join(args)}' sikertelen: időtúllépés") from e
 
-    if eredmeny.returncode != 0:
+    if result.returncode != 0:
         raise BackupError(
-            f"'docker {' '.join(args)}' sikertelen: {eredmeny.stderr.strip()}"
+            f"'docker {' '.join(args)}' sikertelen: {result.stderr.strip()}"
         )
 
 
+# -------------DB-fájlok kimásolása a konténerből-------------
+
+
 def copy_db_files() -> list[Path]:
-    forras = f"{CONTAINER_NAME}:/home/node/.n8n/."
+    source = f"{CONTAINER_NAME}:/home/node/.n8n/."
     if STAGING.exists():
         shutil.rmtree(STAGING)
     STAGING.mkdir(parents=True, exist_ok=True)
-    run_docker(["cp", forras, str(STAGING)])
-    db_fajlok = list(STAGING.glob("database.sqlite*"))
-    if not db_fajlok:
+    run_docker(["cp", source, str(STAGING)])
+    db_files = list(STAGING.glob("database.sqlite*"))
+    if not db_files:
         raise BackupError("Nem található database.sqlite a kimásolt fájlok között")
-    return db_fajlok
+    return db_files
 
 
-def zip_maker(lista: list[Path]) -> Path:
-    datum = datetime.now().strftime("%Y-%m-%d_%H.%M.%S")
-    ZIP_HELY = Path(BACKUP_DIR, f"n8n_backup_{datum}.zip")
+# -------------ZIP-törlő segédfüggvény--------------------
+
+
+def remove_zip(zip_path: Path) -> None:
     try:
-        with zipfile.ZipFile(ZIP_HELY, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-            for f in lista:
+        zip_path.unlink(missing_ok=True)
+        logger.info("Törölve: %s", zip_path.name)
+    except OSError as e:
+        logger.warning("Nem sikerült törölni: %s --> (%s)", zip_path.name, e)
+
+
+# -------------ZIP-fájl készítése-------------
+
+
+def create_zip(ziplist: list[Path]) -> Path:
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H.%M.%S")
+    zip_path = BACKUP_DIR / f"n8n_backup_{timestamp}.zip"
+    try:
+        with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            for f in ziplist:
                 zf.write(f, arcname=f.name)
     except Exception:
-        try:
-            ZIP_HELY.unlink(missing_ok=True)
-        except OSError as o:
-            logger.warning(
-                f"Hiba lépett fel a zip_maker hibakezelésében, Nem sikerült törölni a rossz félkész ZIP-et! :{ZIP_HELY.name}--{o}"
-            )
+        remove_zip(zip_path)
         raise
-    return ZIP_HELY
+    return zip_path
 
 
-def ell_meret(zip_hely: Path) -> float:
-    if not zip_hely.exists():
-        raise BackupError("Nem található ilyen ZIP file!")
-    meret = zip_hely.stat().st_size
-    meret_mb = round(meret / (1024**2), 2)
-    if meret < MIN_ZIP_SIZE:
-        raise BackupError(f"Gyanúsan kicsi a ZIP-mérete: {meret_mb}MB !")
-    return meret_mb
+# -------------ZIP-fájl méretének ellenőrzése-------------
 
 
-def regi_torles() -> None:
-    zipek = BACKUP_DIR.glob("n8n_backup_*.zip")
-    rendezve = sorted(zipek, key=lambda f: f.stat().st_mtime, reverse=True)
-    regiek = rendezve[KEEP_COUNT:]
-    for r in regiek:
-        try:
-            logger.info(f"A {r.name} mentés már régi így törlésre kerül!")
-            r.unlink()
-        except OSError as e:
-            logger.warning("Nem sikerült törölni: %s --> (%s)", r.name, e)
+def check_size(zip_path: Path) -> float:
+    if not zip_path.exists():
+        raise BackupError("Nem található ilyen ZIP-fájl!")
+    size_bytes = zip_path.stat().st_size
+    size_mb = round(size_bytes / (1024**2), 2)
+    if size_bytes < MIN_ZIP_SIZE:
+        raise BackupError(f"Gyanúsan kicsi a ZIP-fájl: {size_mb} MB!")
+    return size_mb
+
+
+# -------------Régi mentések törlése (retenció)-------------
+
+
+def remove_old() -> None:
+    zip_files = BACKUP_DIR.glob("n8n_backup_*.zip")
+    newest_first = sorted(zip_files, key=lambda f: f.stat().st_mtime, reverse=True)
+    old_backups = newest_first[KEEP_COUNT:]
+    for ob in old_backups:
+        remove_zip(ob)
 
 
 if __name__ == "__main__":
