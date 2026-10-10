@@ -34,37 +34,50 @@ TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
 
 
-try:
-    backup_path = os.environ["BACKUP_DIR"]
-except KeyError:
-    sys.exit("A BACKUP_DIR egyáltalán nincs a .env-ben!")
-else:
-    # .strip(): a szöveg elejéről és végéről levágja a szóközöket,
-    # így a csak szóközből álló érték is üresnek számít
-
-    if not backup_path.strip():
-        sys.exit("A BACKUP_DIR üres a .env-ben!")
-    BACKUP_DIR = Path(backup_path.strip())
-
-
 class BackupError(Exception):
     """A mentés valamelyik lépése sikertelen"""
+
+
+# -------------BACKUP_DIR beolvasása és ellenőrzése-------------
+
+
+def get_backup_dir() -> Path:
+    try:
+        backup_path = os.environ["BACKUP_DIR"]
+    except KeyError:
+        raise BackupError("A BACKUP_DIR egyáltalán nincs a .env-ben!") from None
+    else:
+        # .strip(): a szöveg elejéről és végéről levágja a szóközöket,
+        # így a csak szóközből álló érték is üresnek számít
+        backup_path = backup_path.strip()
+        if not backup_path:
+            raise BackupError("A BACKUP_DIR üres a .env-ben!")
+    return Path(backup_path)
 
 
 # -------------Fő folyamat: mentés + jelentés-------------
 
 
-def main():
-    BACKUP_DIR.mkdir(parents=True, exist_ok=True)
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)-8s %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-        handlers=[
-            logging.StreamHandler(),
-            logging.FileHandler(BACKUP_DIR / "backup-log.txt", encoding="utf-8"),
-        ],
-    )
+def main() -> None:
+    try:
+        backup_dir = get_backup_dir()
+        backup_dir.mkdir(parents=True, exist_ok=True)
+        logging.basicConfig(
+            level=logging.INFO,
+            format="%(asctime)s %(levelname)-8s %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+            handlers=[
+                logging.StreamHandler(),
+                logging.FileHandler(backup_dir / "backup-log.txt", encoding="utf-8"),
+            ],
+        )
+    except (BackupError, OSError) as e:
+        logger.error("A mentés el sem indult!\n%s", e)
+        send_telegram(
+            f"n8n-mentés - HIBA\nA mentés el sem indult (backup_dir_hiba)!\n{e}"
+        )
+        sys.exit(1)
+
     restart_ok = False
     backup_ok = False
     error_message = ""
@@ -75,7 +88,7 @@ def main():
         run_docker(["stop", "-t", "30", CONTAINER_NAME])
         db_files = copy_db_files()
         logger.info("Kimásolt DB-fájlok: %s", [f.name for f in db_files])
-        zip_path = create_zip(db_files)
+        zip_path = create_zip(db_files, backup_dir)
         try:
             size_mb = check_size(zip_path)
         except BackupError:
@@ -84,8 +97,8 @@ def main():
         backup_ok = True
         success_message = f"A ZIP-fájl kész: {zip_path.name}, mérete: {size_mb} MB"
         logger.info("A ZIP-fájl kész: %s", zip_path)
-        logger.info("A ZIP mérete: %s MB", {size_mb})
-        remove_old()
+        logger.info("A ZIP mérete: %s MB", size_mb)
+        remove_old(backup_dir)
     # BackupErrorral a várható hibákat fogom meg
     except BackupError as e:
         logger.error("Hiba történt: %s", e)
@@ -112,7 +125,7 @@ def main():
             logger.warning("A STAGING mappa utólagos ürítése sikertelen: %s", e)
 
     if restart_ok and backup_ok:
-        message = "n8n-mentés - OK\n{success_message}"
+        message = f"n8n-mentés - OK\n{success_message}"
         level = logging.INFO
     elif restart_ok and not backup_ok:
         message = f"n8n-mentés - FIGYELMEZTETÉS\nSikertelen mentés, de a konténer fut!\n{error_message}"
@@ -203,9 +216,9 @@ def remove_zip(zip_path: Path) -> None:
 # -------------ZIP-fájl készítése-------------
 
 
-def create_zip(ziplist: list[Path]) -> Path:
+def create_zip(ziplist: list[Path], backup_dir: Path) -> Path:
     timestamp = datetime.now().strftime("%Y-%m-%d_%H.%M.%S")
-    zip_path = BACKUP_DIR / f"n8n_backup_{timestamp}.zip"
+    zip_path = backup_dir / f"n8n_backup_{timestamp}.zip"
     try:
         with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
             for f in ziplist:
@@ -232,8 +245,8 @@ def check_size(zip_path: Path) -> float:
 # -------------Régi mentések törlése (retenció)-------------
 
 
-def remove_old() -> None:
-    zip_files = BACKUP_DIR.glob("n8n_backup_*.zip")
+def remove_old(backup_dir: Path) -> None:
+    zip_files = backup_dir.glob("n8n_backup_*.zip")
     newest_first = sorted(zip_files, key=lambda f: f.stat().st_mtime, reverse=True)
     old_backups = newest_first[KEEP_COUNT:]
     for ob in old_backups:
