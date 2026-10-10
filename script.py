@@ -4,18 +4,19 @@ ZIP-be csomagolja, majd attól függően, hogy sikerült-e a művelet,
 Telegramon értesítést küld.
 """
 
-import os
-from datetime import datetime
 import logging
-import sys
-import subprocess
-import tempfile
-import zipfile
-import urllib.error
-import urllib.request
+import os
 import shutil
+import subprocess
+import sys
+import tempfile
+import urllib.error
 import urllib.parse
+import urllib.request
+import zipfile
+from datetime import datetime
 from pathlib import Path
+
 from dotenv import load_dotenv
 
 load_dotenv(Path(__file__).parent / ".env")
@@ -38,7 +39,9 @@ try:
 except KeyError:
     sys.exit("A BACKUP_DIR egyáltalán nincs a .env-ben!")
 else:
-    # .strip(): a szöveg elejéről és végéről levágja a szóközöket, így a csak szóközből álló érték is üresnek számít
+    # .strip(): a szöveg elejéről és végéről levágja a szóközöket,
+    # így a csak szóközből álló érték is üresnek számít
+
     if not backup_path.strip():
         sys.exit("A BACKUP_DIR üres a .env-ben!")
     BACKUP_DIR = Path(backup_path.strip())
@@ -81,15 +84,15 @@ def main():
         backup_ok = True
         success_message = f"A ZIP-fájl kész: {zip_path.name}, mérete: {size_mb} MB"
         logger.info("A ZIP-fájl kész: %s", zip_path)
-        logger.info(f"A ZIP mérete: {size_mb} MB")
+        logger.info("A ZIP mérete: %s MB", {size_mb})
         remove_old()
     # BackupErrorral a várható hibákat fogom meg
     except BackupError as e:
-        logger.error(f"Hiba történt: {e}")
+        logger.error("Hiba történt: %s", e)
         error_message = str(e)
     # Exception-nel a váratlan hibákat fogom meg
     except Exception as e:
-        logger.exception(f"Hiba történt: {e}")
+        logger.exception("Hiba történt: %s", e)
         error_message = f"{type(e).__name__}: {e}"
     finally:
         try:
@@ -97,18 +100,19 @@ def main():
             restart_ok = True
         except BackupError as e:
             logger.error(
-                f"A(z) {CONTAINER_NAME} konténert nem sikerült újraindítani: {e}"
+                "A(z) %s konténert nem sikerült újraindítani: %s", CONTAINER_NAME, e
             )
             restart_error_message = str(e)
-        # STAGING takarítása, hogy ne maradjon ott a következő futásig a TEMP-ben az érzékeny adat
+        # STAGING takarítása, hogy ne maradjon ott a következő futásig
+        # a TEMP-ben az érzékeny adat
         try:
             if STAGING.exists():
                 shutil.rmtree(STAGING)
         except OSError as e:
-            logger.warning(f"A STAGING mappa utólagos ürítése sikertelen: {e}")
+            logger.warning("A STAGING mappa utólagos ürítése sikertelen: %s", e)
 
     if restart_ok and backup_ok:
-        message = f"n8n-mentés - OK\n{success_message}"
+        message = "n8n-mentés - OK\n{success_message}"
         level = logging.INFO
     elif restart_ok and not backup_ok:
         message = f"n8n-mentés - FIGYELMEZTETÉS\nSikertelen mentés, de a konténer fut!\n{error_message}"
@@ -143,7 +147,7 @@ def send_telegram(text: str) -> None:
         with urllib.request.urlopen(request, timeout=10):
             pass
     except (urllib.error.URLError, TimeoutError) as e:
-        logger.warning(f"Telegram-üzenet küldése sikertelen: {e}")
+        logger.warning("Telegram-üzenet küldése sikertelen: %s", e)
 
 
 # -------------Docker-hívások-------------
