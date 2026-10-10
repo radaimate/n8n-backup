@@ -15,6 +15,7 @@ import urllib.parse
 import urllib.request
 import zipfile
 from datetime import datetime
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -29,7 +30,8 @@ CONTAINER_NAME = "n8n"
 KEEP_COUNT = 15  # ennyi mentés marad meg
 STAGING = Path(tempfile.gettempdir()) / "n8n-backup-staging"
 MIN_ZIP_SIZE = 100 * 1024
-
+LOG_MAX_BYTES = 1024 * 1024
+LOG_BACKUP_COUNT = 3
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
 
@@ -68,7 +70,13 @@ def main() -> None:
             datefmt="%Y-%m-%d %H:%M:%S",
             handlers=[
                 logging.StreamHandler(),
-                logging.FileHandler(backup_dir / "backup-log.txt", encoding="utf-8"),
+                RotatingFileHandler(
+                    backup_dir / "backup-log.txt",
+                    "append",
+                    LOG_MAX_BYTES,
+                    LOG_BACKUP_COUNT,
+                    encoding="utf-8",
+                ),
             ],
         )
     except (BackupError, OSError) as e:
