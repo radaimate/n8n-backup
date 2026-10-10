@@ -2,3 +2,5 @@
 .venv/
 __pycache__/
 n8n-backup.ps1
+.pytest_cache/
+.ruff_cache/
