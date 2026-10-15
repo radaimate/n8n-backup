@@ -56,7 +56,7 @@ def main() -> None:
     except (BackupError, OSError) as e:
         logger.error("A mentés el sem indult!\n%s", e)
         send_telegram(
-            f"n8n-mentés - HIBA\nA mentés el sem indult (backup_dir_hiba)!\n{e}"
+            f"n8n-mentés - KONFIGURÁCIÓS HIBA\nA mentés el sem indult (backup_dir_hiba)!\n{e}"
         )
         sys.exit(1)
 

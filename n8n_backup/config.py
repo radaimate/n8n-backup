@@ -14,6 +14,7 @@ load_dotenv(Path(__file__).parent.parent / ".env")
 # -------------Beállítások-------------
 
 CONTAINER_NAME = "n8n"
+N8N_DATA_DIR = "/home/node/.n8n"  # az n8n adatmappája a konténeren belül
 KEEP_COUNT = 15  # ennyi mentés marad meg
 STAGING = Path(tempfile.gettempdir()) / "n8n-backup-staging"
 MIN_ZIP_SIZE = 100 * 1024

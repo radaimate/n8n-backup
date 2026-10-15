@@ -6,7 +6,13 @@ import zipfile
 from datetime import datetime
 from pathlib import Path
 
-from n8n_backup.config import CONTAINER_NAME, KEEP_COUNT, MIN_ZIP_SIZE, STAGING
+from n8n_backup.config import (
+    CONTAINER_NAME,
+    KEEP_COUNT,
+    MIN_ZIP_SIZE,
+    N8N_DATA_DIR,
+    STAGING,
+)
 from n8n_backup.docker_ops import run_docker
 from n8n_backup.errors import BackupError
 
@@ -16,15 +22,22 @@ logger = logging.getLogger(__name__)
 
 
 def copy_db_files() -> list[Path]:
-    source = f"{CONTAINER_NAME}:/home/node/.n8n/."
     if STAGING.exists():
         shutil.rmtree(STAGING)
     STAGING.mkdir(parents=True, exist_ok=True)
-    run_docker(["cp", source, str(STAGING)])
-    db_files = list(STAGING.glob("database.sqlite*"))
-    if not db_files:
-        raise BackupError("Nem található database.sqlite a kimásolt fájlok között")
-    return db_files
+    # Csak az adatbázis-fájlokat másoljuk ki, így a config fájl (benne a
+    # titkosítási kulccsal) nem kerül ki a konténerből a TEMP mappába.
+    # A database.sqlite kötelező: ha hiányzik, a run_docker BackupError-t dob.
+    run_docker(["cp", f"{CONTAINER_NAME}:{N8N_DATA_DIR}/database.sqlite", str(STAGING)])
+    # A -wal és a -shm nem mindig létezik, ezért ezek hiánya nem hiba
+    for name in ("database.sqlite-wal", "database.sqlite-shm"):
+        try:
+            run_docker(["cp", f"{CONTAINER_NAME}:{N8N_DATA_DIR}/{name}", str(STAGING)])
+        except BackupError as e:
+            if "Could not find the file" not in str(e):
+                raise
+            logger.info("Nem létezik, kihagyva: %s", name)
+    return list(STAGING.glob("database.sqlite*"))
 
 
 # -------------ZIP-törlő segédfüggvény--------------------
