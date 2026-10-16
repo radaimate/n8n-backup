@@ -1,5 +1,7 @@
 # n8n-backup
 
+[![CI](https://github.com/radaimate/n8n-backup/actions/workflows/ci.yml/badge.svg)](https://github.com/radaimate/n8n-backup/actions/workflows/ci.yml)
+
 Automatikus mentés egy Dockerben futó [n8n](https://n8n.io) SQLite-adatbázisáról, Windowson.
 
 A script szabályosan leállítja az n8n-konténert, kimásolja belőle az adatbázist, dátumozott ZIP-fájlba csomagolja, megtartja a legutóbbi mentéseket, újraindítja a konténert, és az eredményről Telegramon értesítést küld. A Windows Feladatütemezőből (Task Scheduler) futtatható.
@@ -182,6 +184,10 @@ Független az n8n-től: ha az n8n áll, a riasztás akkor is megjön, mert a meg
 
 Egészen egyszerűen azért, mert a C/C++ mellett Pythonban van a legnagyobb tapasztalatom, és szerencsémre a 3 közül az automatizálásra az utolsó kitűnően használható. A gazdag standard könyvtára pedig segítette a munkámat.
 
+**Miért kell CI workflow?**
+
+Ez egy egyszerűen megvalósítható, de annál hasznosabb funkció, minden push és pull request esetén lefuttatja a teszteket és ellenőrzi a formázást, így ha valami hibás, látjuk a GitHubon és már előre tudjuk, hogy a rossz kódra nem építünk. Ezen kívül, mivel tiszta gépen, Ubuntun és Windowson is fut az is kiderül ha valami csak a saját gépemen működik.
+
 ## Fejlesztés
 
 ```powershell
@@ -194,6 +200,10 @@ ruff format .       # formázás
 
 A tesztek nem igényelnek Dockert vagy hálózatot: a `subprocess.run` és az `urllib` hívásokat a pytest `monkeypatch` fixture-je helyettesíti.
 
+### Folyamatos integráció (CI)
+
+Minden pushnál és pull requestnél a GitHub Actions ([.github/workflows/ci.yml](.github/workflows/ci.yml)) Ubuntun és Windowson is lefuttatja ugyanezt a három ellenőrzést: `ruff check`, `ruff format --check` és `pytest`. Az eredményt a README tetején lévő jelvény mutatja.
+
 ### A projekt szerkezete
 
 ```
@@ -205,6 +215,8 @@ n8n_backup/
   notify.py       # Telegram-értesítés
   errors.py       # BackupError kivételosztály
 tests/            # pytest-tesztek
+.github/workflows/
+  ci.yml          # GitHub Actions: lint + tesztek Ubuntun és Windowson
 ```
 
 ## Licenc
