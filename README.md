@@ -206,3 +206,7 @@ n8n_backup/
   errors.py       # BackupError kivételosztály
 tests/            # pytest-tesztek
 ```
+
+## Licenc
+
+[MIT](LICENSE)
