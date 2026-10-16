@@ -2,33 +2,35 @@
 
 [![CI](https://github.com/radaimate/n8n-backup/actions/workflows/ci.yml/badge.svg)](https://github.com/radaimate/n8n-backup/actions/workflows/ci.yml)
 
-Automatikus mentés egy Dockerben futó [n8n](https://n8n.io) SQLite-adatbázisáról, Windowson.
+*[Magyar változat](README.hu.md)*
 
-A script szabályosan leállítja az n8n-konténert, kimásolja belőle az adatbázist, dátumozott ZIP-fájlba csomagolja, megtartja a legutóbbi mentéseket, újraindítja a konténert, és az eredményről Telegramon értesítést küld. A Windows Feladatütemezőből (Task Scheduler) futtatható.
+Automated backup of the SQLite database of an [n8n](https://n8n.io) instance running in Docker, on Windows.
 
-A projekt egy korábbi PowerShell-script Python-átirata, modulokra bontva, típusjelzésekkel és tesztekkel.
+The script stops the n8n container cleanly, copies the database out of it, packs it into a timestamped ZIP file, keeps only the most recent backups, restarts the container and reports the result via Telegram. It is designed to run from Windows Task Scheduler.
 
-## Funkciók
+The project is a Python rewrite of an earlier PowerShell script, split into modules, with type hints and tests. Log and notification messages are in Hungarian.
 
-- **Konzisztens mentés:** a konténert `docker stop -t 30` állítja le, így az n8n szabályosan lezárja az adatbázist, és a másolás alatt nem ír bele.
-- **Dátumozott ZIP:** `n8n_backup_2026-10-15_03.00.00.zip` formátumú fájlnév, a fájlok a ZIP gyökerében.
-- **Méretellenőrzés:** a gyanúsan kicsi (100 KB alatti) ZIP hibának számít, és törlődik.
-- **Retenció:** csak a legutóbbi 15 mentés marad meg, a régebbiek törlődnek.
-- **A konténer mindig újraindul,** akkor is, ha a mentés közben hiba történt.
-- **Telegram-értesítés** egyértelmű állapotokkal (OK / FIGYELMEZTETÉS / HIBA / KRITIKUS HIBA / KONFIGURÁCIÓS HIBA).
-- **A titkosítási kulcs nem hagyja el a konténert:** csak a `database.sqlite*` fájlok kerülnek ki, a `config` fájl nem.
-- **Exit kód:** hiba esetén `1`, így a Feladatütemező is látja, ha valami nem sikerült.
-- **Forgó naplófájl:** legfeljebb 1 MB, 3 korábbi példánnyal.
-- **Takarítás:** az ideiglenes másolatok a futás végén törlődnek a `%TEMP%` mappából.
+## Features
 
-## Követelmények
+- **Consistent backup:** the container is stopped with `docker stop -t 30`, so n8n closes the database cleanly and does not write to it during the copy.
+- **Timestamped ZIP:** file names like `n8n_backup_2026-10-15_03.00.00.zip`, with the files at the root of the archive.
+- **Size check:** a suspiciously small ZIP (under 100 KB) is treated as an error and deleted.
+- **Retention:** only the 15 most recent backups are kept, older ones are deleted.
+- **The container is always restarted,** even if the backup failed.
+- **Telegram notifications** with distinct states (OK / WARNING / ERROR / CRITICAL ERROR / CONFIGURATION ERROR).
+- **The encryption key never leaves the container:** only the `database.sqlite*` files are copied out, the `config` file is not.
+- **Exit code:** `1` on any failure, so Task Scheduler also sees when something went wrong.
+- **Rotating log file:** at most 1 MB, with 3 previous copies.
+- **Cleanup:** temporary copies are deleted from `%TEMP%` at the end of each run.
+
+## Requirements
 
 - Windows
 - Python 3.13
-- Docker Desktop, benne egy futó, `n8n` nevű konténer (a hivatalos `n8nio/n8n` image alapértelmezett adatmappájával: `/home/node/.n8n`)
-- Telegram-bot (opcionális, csak az értesítésekhez)
+- Docker Desktop with a running container named `n8n` (using the default data directory of the official `n8nio/n8n` image: `/home/node/.n8n`)
+- A Telegram bot (optional, only for notifications)
 
-## Telepítés
+## Installation
 
 ```powershell
 git clone https://github.com/radaimate/n8n-backup.git
@@ -38,187 +40,189 @@ py -3.13 -m venv .venv
 pip install -r requirements.txt
 ```
 
-## Beállítás
+## Configuration
 
-Másold le a `.env.example` fájlt `.env` néven, és töltsd ki:
+Copy `.env.example` to `.env` and fill it in:
 
 ```powershell
 Copy-Item .env.example .env
 ```
 
-| Változó | Kötelező | Leírás |
+| Variable | Required | Description |
 |---|---|---|
-| `BACKUP_DIR` | igen | Ebbe a mappába kerülnek a ZIP-fájlok és a napló. Ha nem létezik, a script létrehozza. Egy OneDrive-mappa megadásával a mentések a felhőbe is felkerülnek. |
-| `TELEGRAM_TOKEN` | nem | A Telegram-bot tokenje (a [@BotFather](https://t.me/BotFather) adja). |
-| `TELEGRAM_CHAT_ID` | nem | A chat azonosítója, ahová az értesítések mennek. |
+| `BACKUP_DIR` | yes | Folder for the ZIP files and the log. Created if it does not exist. Pointing it to a OneDrive folder also gives you an off-site copy. |
+| `TELEGRAM_TOKEN` | no | The Telegram bot token (issued by [@BotFather](https://t.me/BotFather)). |
+| `TELEGRAM_CHAT_ID` | no | The ID of the chat that receives the notifications. |
 
-Ha a `TELEGRAM_TOKEN` vagy a `TELEGRAM_CHAT_ID` üres, a script nem küld értesítést, de a mentés ettől még lefut.
+If `TELEGRAM_TOKEN` or `TELEGRAM_CHAT_ID` is empty, no notification is sent, but the backup still runs.
 
-A `.env` fájl titkos adatokat tartalmaz, ezért szerepel a `.gitignore`-ban, és nem kerül fel a repóba.
+The `.env` file contains secrets, so it is listed in `.gitignore` and never committed.
 
-További beállítások az [n8n_backup/config.py](n8n_backup/config.py) fájlban:
+Further settings live in [n8n_backup/config.py](n8n_backup/config.py):
 
-| Konstans | Alapérték | Jelentés |
+| Constant | Default | Meaning |
 |---|---|---|
-| `CONTAINER_NAME` | `"n8n"` | A mentendő konténer neve |
-| `KEEP_COUNT` | `15` | Ennyi mentés marad meg |
-| `MIN_ZIP_SIZE` | `100 * 1024` | Ennél kisebb ZIP-fájl (bájtban) hibának számít |
-| `LOG_MAX_BYTES` | `1024 * 1024` | A naplófájl maximális mérete |
-| `LOG_BACKUP_COUNT` | `3` | Ennyi régi naplófájl marad meg |
+| `CONTAINER_NAME` | `"n8n"` | Name of the container to back up |
+| `KEEP_COUNT` | `15` | Number of backups to keep |
+| `MIN_ZIP_SIZE` | `100 * 1024` | ZIP files smaller than this (in bytes) are treated as an error |
+| `LOG_MAX_BYTES` | `1024 * 1024` | Maximum size of the log file |
+| `LOG_BACKUP_COUNT` | `3` | Number of old log files to keep |
 
-## Futtatás
+## Usage
 
-A projekt gyökeréből:
+From the project root:
 
 ```powershell
 python -m n8n_backup
 ```
 
-| Exit kód | Jelentés |
+| Exit code | Meaning |
 |---|---|
-| `0` | A mentés sikeres, és a konténer fut |
-| `1` | Valamelyik lépés nem sikerült (a részletek a naplóban és a Telegram-üzenetben) |
+| `0` | The backup succeeded and the container is running |
+| `1` | A step failed (details in the log and the Telegram message) |
 
-## A mentés menete
+## How a backup run works
 
-1. A `BACKUP_DIR` ellenőrzése és a naplózás beállítása
-2. A konténer leállítása (`docker stop -t 30 n8n`)
-3. A `database.sqlite*` fájlok kimásolása egy ideiglenes mappába (`docker cp`)
-4. A fájlok ZIP-be csomagolása
-5. A ZIP méretének ellenőrzése
-6. A régi mentések törlése
-7. A konténer újraindítása (`docker start n8n`), **hiba esetén is**
-8. Az ideiglenes mappa törlése
-9. Jelentés: napló + Telegram + exit kód
+1. Validate `BACKUP_DIR` and set up logging
+2. Stop the container (`docker stop -t 30 n8n`)
+3. Copy the `database.sqlite*` files into a temporary folder (`docker cp`)
+4. Pack the files into a ZIP
+5. Check the ZIP size
+6. Delete old backups
+7. Restart the container (`docker start n8n`), **even on failure**
+8. Delete the temporary folder
+9. Report: log + Telegram + exit code
 
-## Ütemezés a Feladatütemezővel
+## Scheduling with Task Scheduler
 
-A Feladatütemezőben (Task Scheduler) hozz létre egy új feladatot (*Create Task*), és a *Műveletek* (*Actions*) fülön állítsd be:
+In Task Scheduler, create a new task (*Create Task*) and set the following on the *Actions* tab:
 
-| Mező | Érték |
+| Field | Value |
 |---|---|
-| Program/script | A venv Pythonjának **teljes** útvonala, pl. `C:\...\n8n-backup\.venv\Scripts\python.exe` |
-| Argumentumok | `-m n8n_backup` |
-| Kezdés helye (*Start in*) | A projekt gyökérmappája, pl. `C:\...\n8n-backup` |
+| Program/script | The **full** path of the venv Python, e.g. `C:\...\n8n-backup\.venv\Scripts\python.exe` |
+| Add arguments | `-m n8n_backup` |
+| Start in | The project root folder, e.g. `C:\...\n8n-backup` |
 
-- A **Program** mezőbe a venv Pythonja kell, ne a globális `python`, mert csak abban vannak telepítve a függőségek.
-- A **Kezdés helye** mező kötelező: a `python -m n8n_backup` az aktuális mappában keresi az `n8n_backup` csomagot.
-- A Docker Desktop általában csak bejelentkezett felhasználónál fut, ezért a feladatot is a *Csak akkor fusson, ha a felhasználó be van jelentkezve* beállítással érdemes futtatni.
+- **Program/script** must point to the venv Python, not the global `python`, because only the venv has the dependencies installed.
+- **Start in** is required: `python -m n8n_backup` looks for the `n8n_backup` package in the current directory.
+- Docker Desktop usually runs only while a user is logged on, so the task should also use *Run only when user is logged on*.
 
-## Kimenet
+## Output
 
-**Mentések:** `BACKUP_DIR\n8n_backup_ÉÉÉÉ-HH-NN_óó.pp.mm.zip`, benne a `database.sqlite` (és ha vannak, a `-wal` és `-shm` fájlok).
+**Backups:** `BACKUP_DIR\n8n_backup_YYYY-MM-DD_HH.MM.SS.zip`, containing `database.sqlite` (and the `-wal` and `-shm` files, if present).
 
-**Napló:** `BACKUP_DIR\backup-log.txt`. 1 MB fölött új fájl kezdődik, a régiek `backup-log.txt.1` … `.3` néven maradnak meg.
+**Log:** `BACKUP_DIR\backup-log.txt`. Above 1 MB a new file is started, and the old ones are kept as `backup-log.txt.1` … `.3`.
 
-**Telegram-értesítések:**
+**Telegram notifications** (the messages themselves are in Hungarian):
 
-| Állapot | Mentés | Konténer | Teendő |
-|---|---|---|---|
-| OK | sikeres | fut | — |
-| FIGYELMEZTETÉS | sikertelen | fut | Megnézni a naplót, a következő futás újrapróbálja |
-| HIBA | sikeres | **áll** | A konténert kézzel kell elindítani |
-| KRITIKUS HIBA | sikertelen | **áll** | Azonnali beavatkozás szükséges |
-| KONFIGURÁCIÓS HIBA | el sem indult | fut (nem állt le) | A `.env` javítása: a következő futás magától sem fog sikerülni |
+| State | Message label | Backup | Container | Action |
+|---|---|---|---|---|
+| OK | `OK` | succeeded | running | — |
+| Warning | `FIGYELMEZTETÉS` | failed | running | Check the log; the next run retries |
+| Error | `HIBA` | succeeded | **stopped** | Start the container manually |
+| Critical error | `KRITIKUS HIBA` | failed | **stopped** | Immediate action required |
+| Configuration error | `KONFIGURÁCIÓS HIBA` | never started | running (not stopped) | Fix `.env`; the next run will not succeed on its own |
 
-A KONFIGURÁCIÓS HIBA akkor jön, ha a `BACKUP_DIR` hiányzik, üres vagy nem hozható létre. Ilyenkor a script a konténerhez hozzá sem nyúl.
+The configuration error is reported when `BACKUP_DIR` is missing, empty or cannot be created. In that case the script does not touch the container at all.
 
-## Visszaállítás
+## Restore
 
-> **Fontos: a titkosítási kulcs.** Az n8n a credentialöket (API-kulcsok, jelszavak) titkosítva tárolja az adatbázisban. A kulcs **nincs** benne a mentésben: a konténer `/home/node/.n8n/config` fájljában van, vagy az `N8N_ENCRYPTION_KEY` környezeti változóban. A kulcs nélkül a visszaállított credentialök nem használhatók, ezért mentsd el külön, például egy jelszókezelőbe:
+> **Important: the encryption key.** n8n stores credentials (API keys, passwords) encrypted in the database. The key is **not** part of the backup: it is in the container's `/home/node/.n8n/config` file or in the `N8N_ENCRYPTION_KEY` environment variable. Without the key, restored credentials cannot be used, so store it separately, e.g. in a password manager:
 >
 > ```powershell
 > docker exec n8n cat /home/node/.n8n/config
 > ```
 
-A visszaállítás lépései:
+Restore steps:
 
 ```powershell
-# 1. A konténer leállítása
+# 1. Stop the container
 docker stop -t 30 n8n
 
-# 2. A kiválasztott mentés kicsomagolása
+# 2. Extract the selected backup
 Expand-Archive .\n8n_backup_2026-10-15_03.00.00.zip -DestinationPath .\restore
 
-# 3. A konténerben maradt régi WAL- és SHM-fájl törlése.
-#    Ha ott maradnának, az SQLite egy másik adatbázis naplóját játszaná rá
-#    a visszaállított fájlra, ami az adatbázis sérülését okozhatja.
+# 3. Delete the old WAL and SHM files left in the container.
+#    If they stayed, SQLite would replay the journal of a different database
+#    onto the restored file, which can corrupt it.
 docker run --rm --volumes-from n8n alpine rm -f /home/node/.n8n/database.sqlite-wal /home/node/.n8n/database.sqlite-shm
 
-# 4. A ZIP összes fájljának visszamásolása a konténerbe
+# 4. Copy all files from the ZIP back into the container
 docker cp .\restore\. n8n:/home/node/.n8n/
 
-# 5. A tulajdonos beállítása még az indítás előtt. A docker cp root tulajdonba
-#    másol, az n8n viszont a node felhasználóval (UID 1000) fut.
+# 5. Set the owner before starting. docker cp copies files as root,
+#    but n8n runs as the node user (UID 1000).
 docker run --rm --volumes-from n8n alpine sh -c "chown 1000:1000 /home/node/.n8n/database.sqlite*"
 
-# 6. Indítás
+# 6. Start
 docker start n8n
 ```
 
-A `--volumes-from` akkor működik, ha az adatmappa Docker volume-on van (a hivatalos n8n-telepítésnél igen). Az `alpine` image-et a Docker az első használatkor letölti.
+`--volumes-from` works when the data directory is on a Docker volume (true for the official n8n setup). Docker pulls the `alpine` image on first use.
 
-## Tervezési döntések
+This procedure has been tested by restoring a backup into a separate container running the same n8n image: users, workflows and credentials were restored, and an HTTP request confirmed that the restored credentials can be decrypted with the separately stored key.
 
-**Miért kell leállítani a konténert?**
+## Design decisions
 
-Ha futó konténerből másolnánk, fennállna annak a veszélye, hogy éppen akkor másolnánk, amikor az n8n ír az adatbázisba, így inkonzisztens adatok kerülhetnek a ZIP-be.
+**Why stop the container?**
 
-**Miért `urllib` és nem `requests`?**
+If we copied from a running container, we could copy right when n8n is writing to the database, and inconsistent data could end up in the ZIP.
 
-Mivel napi egy db POST kéréssel történő üzenetküldés van, ezért nem éri meg a `requests`, még akkor sem, ha a szintaxisa egyszerűbb, hisz az nem része a standard library-nak (kevesebb függőség = kevesebb karbantartás). Ha több API-hívás vagy JSON-kezelés lenne, a `requests`-et választanám.
+**Why `urllib` instead of `requests`?**
 
-**Miért van két külön `try` a `finally`-ben?**
+The script sends a single POST request per day, so `requests` is not worth it, even though its syntax is simpler: it is not part of the standard library (fewer dependencies = less maintenance). With more API calls or JSON handling, I would choose `requests`.
 
-A `finally`-ben két takarítási lépés van, mindkettő külön `try`-ban, hogy az egyik hibája ne akadályozza a másikat. Például ha `try` nélkül lenne az első, és a `docker start` nem jó valamiért, akkor a `STAGING` (ideiglenes mappa) nem törlődne, ott maradna, ami viszont már biztonsági kockázat. Emellett a jelentés sem menne ki, mert a hiba kimenne a `main()`-ből. A script Telegram-üzenet nélkül omlana össze.
+**Why are there two separate `try` blocks in `finally`?**
 
-**Miért nincs kulcs a mentésben? (n8n encryption key)**
+`finally` contains two cleanup steps, each in its own `try`, so that a failure in one does not prevent the other. For example, if the first had no `try` and `docker start` failed, the `STAGING` (temporary) folder would not be deleted and would be left behind, which is a security risk. The report would not be sent either, because the exception would propagate out of `main()`: the script would crash without a Telegram message.
 
-Az n8n-ben a workflow-k külső szolgáltatásokhoz kapcsolódnak: Gmail, Google Sheets, API-kulcsok, adatbázis-jelszavak. Ezeket az n8n a `database.sqlite`-ban titkosítva tárolja, és a titkosítás kulcsa a `config` fájlban van. A titkosított adatot és a kulcsát szándékosan külön kell tárolni. Ha egy felhőbe szinkronizált mentés kiszivárog, a credentialök a kulcs nélkül használhatatlanok. Ezért a script a config fájlt ideiglenesen sem másolja ki a konténerből, csak az adatbázis-fájlokat.
+**Why is the key not in the backup? (n8n encryption key)**
 
-**Miért Telegram?**
+n8n workflows connect to external services such as Gmail or Google Sheets, and n8n stores the required credentials encrypted in `database.sqlite`; the encryption key is in the `config` file. Encrypted data and its key are deliberately stored apart: if a cloud-synced backup leaks, the credentials are useless without the key. For the same reason, the script does not copy the `config` file out of the container, not even temporarily; it copies only the database files.
 
-Független az n8n-től: ha az n8n áll, a riasztás akkor is megjön, mert a megfigyelt rendszer nem saját magáról riaszt. Emellett ingyenes, és viszonylag egyszerűen valósítottam meg vele, amit akartam, mert nem kell hozzá e-mail-szerver, plusz gyors, push-alapú a riasztás. Valamint egyes cégek (Meta) az üzenetküldőik esetén komolyan korlátozzák vagy büntetik az automatizációt.
+**Why Telegram?**
 
-**Miért Pythonban?**
+It is independent of n8n: if n8n is down, the alert still arrives, because the monitored system is not reporting on itself. It is also free and was simple to implement for what I needed, with no mail server required, and the alerts are fast and push-based. In addition, some companies (Meta) seriously restrict or penalize automation on their messengers.
 
-Egészen egyszerűen azért, mert a C/C++ mellett Pythonban van a legnagyobb tapasztalatom, és szerencsémre a 3 közül az automatizálásra az utolsó kitűnően használható. A gazdag standard könyvtára pedig segítette a munkámat.
+**Why Python?**
 
-**Miért kell CI workflow?**
+Simply because, alongside C/C++, Python is the language I have the most experience with, and of the three it is the best suited for automation. Its rich standard library also helped a lot.
 
-Ez egy egyszerűen megvalósítható, de annál hasznosabb funkció, minden push és pull request esetén lefuttatja a teszteket és ellenőrzi a formázást, így ha valami hibás, látjuk a GitHubon és már előre tudjuk, hogy a rossz kódra nem építünk. Ezen kívül, mivel tiszta gépen, Ubuntun és Windowson is fut az is kiderül ha valami csak a saját gépemen működik.
+**Why a CI workflow?**
 
-## Fejlesztés
+It is easy to set up but very useful: on every push and pull request it runs the tests and checks formatting, so if something is broken it shows up on GitHub, and no further work gets built on broken code. And since it runs on a clean machine, on both Ubuntu and Windows, it also reveals anything that only works on my own machine.
+
+## Development
 
 ```powershell
 pip install -r requirements-dev.txt
 
-pytest              # tesztek
+pytest              # tests
 ruff check .        # lint
-ruff format .       # formázás
+ruff format .       # formatting
 ```
 
-A tesztek nem igényelnek Dockert vagy hálózatot: a `subprocess.run` és az `urllib` hívásokat a pytest `monkeypatch` fixture-je helyettesíti.
+The tests need neither Docker nor network access: `subprocess.run` and the `urllib` calls are replaced using pytest's `monkeypatch` fixture.
 
-### Folyamatos integráció (CI)
+### Continuous integration (CI)
 
-Minden pushnál és pull requestnél a GitHub Actions ([.github/workflows/ci.yml](.github/workflows/ci.yml)) Ubuntun és Windowson is lefuttatja ugyanezt a három ellenőrzést: `ruff check`, `ruff format --check` és `pytest`. Az eredményt a README tetején lévő jelvény mutatja.
+On every push and pull request, GitHub Actions ([.github/workflows/ci.yml](.github/workflows/ci.yml)) runs the same three checks on both Ubuntu and Windows: `ruff check`, `ruff format --check` and `pytest`. The badge at the top of this README shows the result.
 
-### A projekt szerkezete
+### Project structure
 
 ```
 n8n_backup/
-  __main__.py     # belépési pont: a mentés folyamata és a jelentés
-  config.py       # konstansok, a .env betöltése, a BACKUP_DIR ellenőrzése
-  backup.py       # DB-fájlok kimásolása, ZIP készítése és ellenőrzése, retenció
-  docker_ops.py   # Docker-parancsok futtatása
-  notify.py       # Telegram-értesítés
-  errors.py       # BackupError kivételosztály
-tests/            # pytest-tesztek
+  __main__.py     # entry point: the backup run and the report
+  config.py       # constants, loading .env, validating BACKUP_DIR
+  backup.py       # copying DB files, creating and checking the ZIP, retention
+  docker_ops.py   # running Docker commands
+  notify.py       # Telegram notification
+  errors.py       # BackupError exception class
+tests/            # pytest tests
 .github/workflows/
-  ci.yml          # GitHub Actions: lint + tesztek Ubuntun és Windowson
+  ci.yml          # GitHub Actions: lint + tests on Ubuntu and Windows
 ```
 
-## Licenc
+## License
 
 [MIT](LICENSE)
