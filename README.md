@@ -202,7 +202,7 @@ ruff check .        # lint
 ruff format .       # formatting
 ```
 
-The tests need neither Docker nor network access: `subprocess.run` and the `urllib` calls are replaced using pytest's `monkeypatch` fixture.
+The tests need neither Docker nor network access: `subprocess.run` and the `urllib` calls are replaced using pytest's `monkeypatch` fixture. The tests for `main()` replace every step (Docker calls, backup steps, Telegram) with a fake, and check that each of the four report states, as well as a configuration error at startup, results in the right Telegram message and exit code.
 
 ### Continuous integration (CI)
 

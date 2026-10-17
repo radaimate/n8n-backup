@@ -202,7 +202,7 @@ ruff check .        # lint
 ruff format .       # formázás
 ```
 
-A tesztek nem igényelnek Dockert vagy hálózatot: a `subprocess.run` és az `urllib` hívásokat a pytest `monkeypatch` fixture-je helyettesíti.
+A tesztek nem igényelnek Dockert vagy hálózatot: a `subprocess.run` és az `urllib` hívásokat a pytest `monkeypatch` fixture-je helyettesíti. A `main()` tesztjei minden lépést (Docker-hívások, mentési lépések, Telegram) hamisítvánnyal cserélnek le, és ellenőrzik, hogy a négy jelentési állapot és az indulási konfigurációs hiba is a megfelelő Telegram-üzenetet és kilépési kódot adja.
 
 ### Folyamatos integráció (CI)
 
