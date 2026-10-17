@@ -1,7 +1,7 @@
 """Értesítés küldése Telegramon a Bot API-n keresztül."""
 
+import http.client
 import logging
-import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -26,5 +26,5 @@ def send_telegram(text: str) -> None:
 
         with urllib.request.urlopen(request, timeout=10):
             pass
-    except (urllib.error.URLError, TimeoutError) as e:
+    except (OSError, http.client.HTTPException) as e:
         logger.warning("Telegram-üzenet küldése sikertelen: %s", e)
